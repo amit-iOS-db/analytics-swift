@@ -18,8 +18,9 @@ public enum HTTPClientErrors: Error {
 }
 
 public class HTTPClient {
-    private static let defaultAPIHost = "api.segment.io/v1"
-    private static let defaultCDNHost = "cdn-settings.segment.com/v1"
+    ///default segment hosts are commented
+    private static let defaultAPIHost = ""//"api.segment.io/v1"
+    private static let defaultCDNHost = ""//"cdn-settings.segment.com/v1"
 
     internal var session: any HTTPSession
     private var apiHost: String
