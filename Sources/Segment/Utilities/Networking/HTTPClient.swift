@@ -60,11 +60,14 @@ public class HTTPClient {
             return nil
         }
 
-        let fileURL = URL(fileURLWithPath: batch.absoluteString)
-
+        
         do {
-            let content = try String(contentsOf: fileURL, encoding: .utf8)
-            print(content)
+            let fileData = try Data(contentsOf: batch)
+            if let fileString = String(data: fileData, encoding: .utf8) {
+                print("File contents before upload:\n\(fileString)")
+            } else {
+                print("Unable to convert file data to a string")
+            }
         } catch {
             print("Error reading file: \(error)")
         }
