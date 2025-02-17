@@ -60,6 +60,16 @@ public class HTTPClient {
             return nil
         }
 
+        let fileURL = URL(fileURLWithPath: batch.absoluteString)
+
+        do {
+            let content = try String(contentsOf: fileURL, encoding: .utf8)
+            print(content)
+        } catch {
+            print("Error reading file: \(error)")
+        }
+        
+        
         let urlRequest = configuredRequest(for: uploadURL, method: "POST")
 
         let dataTask = session.uploadTask(with: urlRequest, fromFile: batch) { [weak self] (data, response, error) in
