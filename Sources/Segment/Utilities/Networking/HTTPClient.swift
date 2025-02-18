@@ -99,6 +99,8 @@ public class HTTPClient {
         }
           
         let urlRequest = configuredRequest(for: uploadURL, method: "POST")
+        
+        print("\nAPI Request as curl \n \(request.cURLRepresentation()) \nResponse status code -- \((response as? HTTPURLResponse)?.statusCode ?? 0)")
 
         let dataTask = session.uploadTask(with: urlRequest, from: data) { [weak self] (data, response, error) in
             guard let self else { return }
@@ -212,5 +214,41 @@ extension HTTPClient {
         }
 
         return request
+    }
+}
+extension URLRequest {
+    /// The textual representation used when written to an output stream, in the form of a cURL command.
+    func cURLRepresentation() -> String {
+        var components = ["$ curl -v"]
+        
+        let request = self
+        guard let url = request.url else {
+            return "$ curl command could not be created"
+        }
+        
+        if let httpMethod = request.httpMethod, httpMethod != "GET" {
+            components.append("-X \(httpMethod)")
+        }
+        
+        var headers: [AnyHashable: Any] = [:]
+        
+        request.allHTTPHeaderFields?.forEach { headers[$0.0] = $0.1 }//.filter { $0.0 != "Cookie" }
+        
+        components += headers.map {
+            let escapedValue = String(describing: $0.value).replacingOccurrences(of: "\"", with: "\\\"")
+            
+            return "-H \"\($0.key): \(escapedValue)\""
+        }
+        
+        if let httpBodyData = request.httpBody, let httpBody = String(data: httpBodyData, encoding: .utf8) {
+            var escapedBody = httpBody.replacingOccurrences(of: "\\\"", with: "\\\\\"")
+            escapedBody = escapedBody.replacingOccurrences(of: "\"", with: "\\\"")
+            
+            components.append("-d \"\(escapedBody)\"")
+        }
+        
+        components.append("\"\(url.absoluteString)\"")
+        
+        return components.joined(separator: " \\\n\t")
     }
 }
