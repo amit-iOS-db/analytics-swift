@@ -76,11 +76,11 @@ public class HTTPClient {
         
         let urlRequest = configuredRequest(for: uploadURL, method: "POST")
         
-        print("\nAPI Request as curl \n \(urlRequest.cURLRepresentation())")
 
 
         let dataTask = session.uploadTask(with: urlRequest, fromFile: batch) { [weak self] (data, response, error) in
             guard let self else { return }
+            
             handleResponse(data: data, response: response, error: error, url: uploadURL, completion: completion)
         }
 
@@ -114,6 +114,9 @@ public class HTTPClient {
     }
     
     private func handleResponse(data: Data?, response: URLResponse?, error: Error?, url: URL?, completion: @escaping (_ result: Result<Bool, Error>) -> Void) {
+        
+        print("\nAPI Request as curl \n \(urlRequest.cURLRepresentation())")
+
         if let error = error {
             analytics?.log(message: "Error uploading request \(error.localizedDescription).")
             analytics?.reportInternalError(AnalyticsError.networkUnknown(url, error))
