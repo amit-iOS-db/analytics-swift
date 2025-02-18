@@ -73,7 +73,11 @@ public class HTTPClient {
         }
         
         
+        
         let urlRequest = configuredRequest(for: uploadURL, method: "POST")
+        
+        print("\nAPI Request as curl \n \(urlRequest.cURLRepresentation()) \nResponse status code -- \((response as? HTTPURLResponse)?.statusCode ?? 0)")
+
 
         let dataTask = session.uploadTask(with: urlRequest, fromFile: batch) { [weak self] (data, response, error) in
             guard let self else { return }
@@ -100,8 +104,6 @@ public class HTTPClient {
           
         let urlRequest = configuredRequest(for: uploadURL, method: "POST")
         
-        print("\nAPI Request as curl \n \(request.cURLRepresentation()) \nResponse status code -- \((response as? HTTPURLResponse)?.statusCode ?? 0)")
-
         let dataTask = session.uploadTask(with: urlRequest, from: data) { [weak self] (data, response, error) in
             guard let self else { return }
             handleResponse(data: data, response: response, error: error, url: uploadURL, completion: completion)
