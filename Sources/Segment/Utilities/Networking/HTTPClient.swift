@@ -123,6 +123,10 @@ public class HTTPClient {
         } else if let httpResponse = response as? HTTPURLResponse {
             switch (httpResponse.statusCode) {
             case 1..<300:
+                if let response = getResponseFromData(data: data).responseData {
+                    print(response)
+                }
+                
                 completion(.success(true))
                 return
             case 300..<400:
@@ -135,6 +139,22 @@ public class HTTPClient {
                 analytics?.reportInternalError(AnalyticsError.networkServerRejected(url, httpResponse.statusCode))
                 completion(.failure(HTTPClientErrors.statusCode(code: httpResponse.statusCode)))
             }
+        }
+    }
+    
+    func getResponseFromData(data: Data?) -> (responseData: [AnyHashable : Any]?, error: Error?) {
+        guard let data = data else { return (nil, nil) }
+        do {
+            let responseJSON = try JSONSerialization.jsonObject(with: data, options: .allowFragments)
+            if let responseData = responseJSON as? [AnyHashable : Any] {
+                return (responseData, nil)
+            } else if let responseData = responseJSON as? [Any] {
+                return (["array" : responseData], nil)
+            } else {
+                return (nil, NSError(domain: "Segment", code: 0, userInfo: [NSLocalizedDescriptionKey : "unable to parse server response"]))
+            }
+        } catch let error {
+            return (nil, error)
         }
     }
     
