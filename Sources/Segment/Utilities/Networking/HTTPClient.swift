@@ -83,6 +83,9 @@ public class HTTPClient {
             
             print("\nAPI Request as curl \n \(urlRequest.cURLRepresentation())")
 
+            if let data {
+                print("Segment API Response: \(String(describing: String(data: data, encoding: .utf8)))")
+            }
             handleResponse(data: data, response: response, error: error, url: uploadURL, completion: completion)
         }
 
@@ -108,9 +111,6 @@ public class HTTPClient {
         
         let dataTask = session.uploadTask(with: urlRequest, from: data) { [weak self] (data, response, error) in
             guard let self else { return }
-            if let data {
-                print("Segment API Response: \(String(describing: String(data: data, encoding: .utf8)))")
-            }
             handleResponse(data: data, response: response, error: error, url: uploadURL, completion: completion)
         }
         
