@@ -63,21 +63,25 @@ public class HTTPClient {
         
         do {
             let fileData = try Data(contentsOf: batch)
-            if let fileString = String(data: fileData, encoding: .utf8) {
-                print("File contents before upload:\n\(fileString)")
+            
+            if let jsonObject = try JSONSerialization.jsonObject(with: fileData, options: []) as? [String: Any] {
+                if let array = jsonObject["batch"] as? [[String: Any]] {
+                    if array.count == 0 {
+                        analytics?.reportInternalError(AnalyticsError.networkServerLimited("Internal: batch count is zero for url: \(batch) and file data count: \(fileData.count), file string: \(String(describing: String(data: fileData, encoding: .utf8)))", 400))
+                    }
+                } else {
+                    analytics?.reportInternalError(AnalyticsError.networkServerLimited("Internal: not able to find batch in json for url: \(batch) and file data count: \(fileData.count), file string: \(String(describing: String(data: fileData, encoding: .utf8)))", 400))
+                }
             } else {
-                print("Unable to convert file data to a string")
+                analytics?.reportInternalError(AnalyticsError.networkServerLimited("Internal: Unable to parse json from file data for url: \(batch) and file data count: \(fileData.count), file string: \(String(describing: String(data: fileData, encoding: .utf8)))", 400))
             }
+
         } catch {
-            print("Error reading file: \(error)")
+            analytics?.reportInternalError(AnalyticsError.networkServerLimited("Internal: Error while reading file from url: \(batch)", 400))
         }
-        
-        
-        
+                
         let urlRequest = configuredRequest(for: uploadURL, method: "POST")
         
-
-
         let dataTask = session.uploadTask(with: urlRequest, fromFile: batch) { [weak self] (data, response, error) in
             guard let self else { return }
             
@@ -119,9 +123,14 @@ public class HTTPClient {
     }
     
     private func handleResponse(data: Data?, response: URLResponse?, error: Error?, url: URL?, completion: @escaping (_ result: Result<Bool, Error>) -> Void) {
+        var apiResponse = ""
+        
+        if let data {
+            apiResponse = String(decoding: data, as: UTF8.self)
+        }
         if let error = error {
             analytics?.log(message: "Error uploading request \(error.localizedDescription).")
-            analytics?.reportInternalError(AnalyticsError.networkUnknown(url, error))
+            analytics?.reportInternalError(AnalyticsError.networkUnknown(apiResponse, error))
             completion(.failure(HTTPClientErrors.unknown(error: error)))
         } else if let httpResponse = response as? HTTPURLResponse {
             switch (httpResponse.statusCode) {
@@ -129,13 +138,13 @@ public class HTTPClient {
                 completion(.success(true))
                 return
             case 300..<400:
-                analytics?.reportInternalError(AnalyticsError.networkUnexpectedHTTPCode(url, httpResponse.statusCode))
+                analytics?.reportInternalError(AnalyticsError.networkUnexpectedHTTPCode(apiResponse, httpResponse.statusCode))
                 completion(.failure(HTTPClientErrors.statusCode(code: httpResponse.statusCode)))
             case 429:
-                analytics?.reportInternalError(AnalyticsError.networkServerLimited(url, httpResponse.statusCode))
+                analytics?.reportInternalError(AnalyticsError.networkServerLimited(apiResponse, httpResponse.statusCode))
                 completion(.failure(HTTPClientErrors.statusCode(code: httpResponse.statusCode)))
             default:
-                analytics?.reportInternalError(AnalyticsError.networkServerRejected(url, httpResponse.statusCode))
+                analytics?.reportInternalError(AnalyticsError.networkServerRejected(apiResponse, httpResponse.statusCode))
                 completion(.failure(HTTPClientErrors.statusCode(code: httpResponse.statusCode)))
             }
         }
@@ -151,14 +160,14 @@ public class HTTPClient {
 
         let dataTask = session.dataTask(with: urlRequest) { [weak self] (data, response, error) in
             if let error = error {
-                self?.analytics?.reportInternalError(AnalyticsError.settingsFail(AnalyticsError.networkUnknown(settingsURL, error)))
+                self?.analytics?.reportInternalError(AnalyticsError.settingsFail(AnalyticsError.networkUnknown("", error)))
                 completion(false, nil)
                 return
             }
 
             if let httpResponse = response as? HTTPURLResponse {
                 if httpResponse.statusCode > 300 {
-                    self?.analytics?.reportInternalError(AnalyticsError.settingsFail(AnalyticsError.networkUnexpectedHTTPCode(settingsURL, httpResponse.statusCode)))
+                    self?.analytics?.reportInternalError(AnalyticsError.settingsFail(AnalyticsError.networkUnexpectedHTTPCode("", httpResponse.statusCode)))
                     completion(false, nil)
                     return
                 }

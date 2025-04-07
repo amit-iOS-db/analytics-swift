@@ -16,10 +16,10 @@ public indirect enum AnalyticsError: Error {
     case storageInvalid(String)
     case storageUnknown(Error)
 
-    case networkUnexpectedHTTPCode(URL?, Int)
-    case networkServerLimited(URL?, Int)
-    case networkServerRejected(URL?, Int)
-    case networkUnknown(URL?, Error)
+    case networkUnexpectedHTTPCode(String?, Int)
+    case networkServerLimited(String?, Int)
+    case networkServerRejected(String?, Int)
+    case networkUnknown(String?, Error)
     case networkInvalidData
 
     case jsonUnableToSerialize(Error)
