@@ -90,7 +90,7 @@ public class HTTPClient {
             if let data {
                 print("Segment API Response: \(String(describing: String(data: data, encoding: .utf8)))")
             }
-            handleResponse(data: data, response: response, error: error, url: uploadURL, completion: completion)
+            handleResponse(data: data, response: response, error: error, url: uploadURL, batch: batch, completion: completion)
         }
 
         dataTask.resume()
@@ -122,7 +122,7 @@ public class HTTPClient {
         return dataTask
     }
     
-    private func handleResponse(data: Data?, response: URLResponse?, error: Error?, url: URL?, completion: @escaping (_ result: Result<Bool, Error>) -> Void) {
+    private func handleResponse(data: Data?, response: URLResponse?, error: Error?, url: URL?, batch: URL? = nil, completion: @escaping (_ result: Result<Bool, Error>) -> Void) {
         var apiResponse = ""
         
         if let data {
@@ -143,6 +143,19 @@ public class HTTPClient {
             case 429:
                 analytics?.reportInternalError(AnalyticsError.networkServerLimited(apiResponse, httpResponse.statusCode))
                 completion(.failure(HTTPClientErrors.statusCode(code: httpResponse.statusCode)))
+                
+            case 400:
+                do {
+                    if let batchUrl = batch {
+                        let fileData = try Data(contentsOf: batchUrl)
+                        let fileString = String(describing: String(data: fileData, encoding: .utf8))
+                        analytics?.reportInternalError(AnalyticsError.networkUnexpectedHTTPCode(apiResponse + fileString, httpResponse.statusCode))
+                    } else {
+                        analytics?.reportInternalError(AnalyticsError.networkUnexpectedHTTPCode(apiResponse, httpResponse.statusCode))
+                    }
+                } catch {
+                    analytics?.reportInternalError(AnalyticsError.networkUnexpectedHTTPCode("Empty File " + apiResponse, httpResponse.statusCode))
+                }
             default:
                 analytics?.reportInternalError(AnalyticsError.networkServerRejected(apiResponse, httpResponse.statusCode))
                 completion(.failure(HTTPClientErrors.statusCode(code: httpResponse.statusCode)))
