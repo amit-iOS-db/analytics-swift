@@ -85,25 +85,31 @@ class LineStreamWriter {
     }
     
     func reset() {
+        
+        // Determine actual file size
+        let size: UInt64
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+           let s = attrs[.size] as? NSNumber {
+            size = s.uint64Value
+        } else {
+            size = 0
+        }
+
+        // Always seek to the true EOF (never .max)
         if #available(iOS 13.4, macOS 10.15.4, tvOS 13.4, *) {
             _ = try? fileHandle.seekToEnd()
-        } else if #available(tvOS 13.0, *) {
-            try? fileHandle.seek(toOffset: .max)
+        } else {
+            try? fileHandle.seek(toOffset: size)  // ✅ correct fallback
         }
-        
-        if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) {
-            guard let size = attrs[FileAttributeKey.size] as? Int else {
-                #if DEBUG
-                assertionFailure("Unable to get the size of \(url)")
-                #endif
-                return
-            }
-            self.bytesWritten = UInt64(size)
-        }
+
+        self.bytesWritten = size
     }
     
     func writeLine(_ str: String) throws {
-        var data = str.data(using: .utf8)
+        
+        //let cleaned = str.replacingOccurrences(of: #"\/"#, with: "/")
+
+        var data = str.data(using: .utf8) //cleaned.data(using: .utf8)
         data?.append(LineStreamConstants.delimiter)
         guard let data else { return }
         if #available(macOS 10.15.4, iOS 13.4, macCatalyst 13.4, tvOS 13.4, watchOS 13.4, *) {

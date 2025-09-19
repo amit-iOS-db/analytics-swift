@@ -12,6 +12,9 @@ public class DirectoryStore: DataStore {
     
     public typealias StoreConfiguration = Configuration
     
+    private let batchHeader = "{ \"batch\": ["
+    private let batchHeaderWithNL = "{ \"batch\": [\n"  // writeLine() adds '\n' anyway
+    
     public struct Configuration {
         let writeKey: String
         let storageLocation: URL
@@ -60,29 +63,48 @@ public class DirectoryStore: DataStore {
     }
     
     public func append(data: RawEvent) {
-        let started = startFileIfNeeded()
+        
+        _ = startFileIfNeeded()
         guard let writer else { return }
-        
-        let line = data.toString()
-        
-        // check if we're good on size ...
+
+        // Size cap
         if writer.bytesWritten >= config.maxFileSize {
-            // it's too big, end it.
             finishFile()
-            // start over with the data we not writing.
-            append(data: data)
+            append(data: data)  // write into a fresh file
             return
         }
-        
+
+        let line = data.toString()
         do {
-            if started {
-                try writer.writeLine(line)
-            } else {
-                try writer.writeLine("," + line)
-            }
+            let comma = needsCommaBeforeNextItem(writer.url) ? "," : ""
+            try writer.writeLine(comma + line)
         } catch {
-            print(error)
         }
+    }
+    
+    private func needsCommaBeforeNextItem(_ url: URL) -> Bool {
+        guard let fh = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { fh.closeFile() }
+
+        let tailWindow = 256
+        let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue ?? 0
+        let seek = max(0, size - tailWindow)
+        try? fh.seek(toOffset: UInt64(seek))
+
+        let data = fh.readDataToEndOfFile()
+
+        // Scan backwards for first non-whitespace
+        for byte in data.reversed() {
+            switch byte {
+            case 0x20, 0x09, 0x0A, 0x0D: // space, \t, \n, \r
+                continue
+            case 0x5B: // '[' → header’s opening bracket: first item
+                return false
+            default:
+                return true   // already had something → needs comma
+            }
+        }
+        return false // treat as brand new
     }
     
     public func fetch(count: Int?, maxBytes: Int?) -> DataResult? {
@@ -150,37 +172,72 @@ extension DirectoryStore {
     
     @inline(__always)
     func startFileIfNeeded() -> Bool {
+       
         guard writer == nil else { return false }
+
         let index = getIndex()
         let fileURL = config.storageLocation.appendingPathComponent("\(index)-\(config.baseFilename)")
         writer = LineStreamWriter(url: fileURL)
-        // we might be reopening this file .. so only do this if it's empty.
-        if let writer, writer.bytesWritten == 0 {
-            let contents = "{ \"batch\": ["
-            try? writer.writeLine(contents)
-            return true
+        guard let writer else { return false }
+
+        var wroteHeader = false
+
+        if writer.bytesWritten == 0 {
+            // brand new/empty file → start fresh
+            try? writer.fileHandle.truncate(atOffset: 0)
+            writer.bytesWritten = 0
+            try? writer.writeLine(batchHeader)
+            wroteHeader = true
+        } else {
+            // Reopened file: ensure it begins with a valid header
+            if !fileBeginsWithBatchHeader(url: fileURL) {
+                try? writer.fileHandle.truncate(atOffset: 0)
+                writer.bytesWritten = 0
+                try? writer.writeLine(batchHeader)
+                wroteHeader = true
+            }
         }
-        return false
+
+        return wroteHeader
+    }
+    
+    private func fileBeginsWithBatchHeader(url: URL) -> Bool {
+        guard let fh = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { fh.closeFile() }
+
+        let want = batchHeaderWithNL.utf8.count
+        let head = fh.readData(ofLength: want)
+        let s = String(decoding: head, as: UTF8.self)
+        return s.hasPrefix(batchHeader)
     }
     
     func finishFile() {
+        
         guard let writer else {
             #if DEBUG
             assertionFailure("There's no working file!")
             #endif
             return
         }
-        
+
         let sentAt = Date().iso8601()
         let fileEnding = "],\"sentAt\":\"\(sentAt)\",\"writeKey\":\"\(config.writeKey)\"}"
         try? writer.writeLine(fileEnding)
-        
+
+        // Flush & normalize size (no sparse padding)
+        if #available(iOS 13.0, *) {
+            _ = try? writer.fileHandle.synchronize()
+        } else {
+            writer.fileHandle.synchronizeFile()
+        }
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: writer.url.path),
+           let size = attrs[.size] as? NSNumber {
+            try? writer.fileHandle.truncate(atOffset: size.uint64Value)
+        }
+
         let url = writer.url
-        
-        // do validation before we rename to prevent the file disappearing out from under us.
         DirectoryStore.fileValidator?(url)
-        
-        // move it to make availble for flushing ...
+
         let newURL = url.appendingPathExtension(Self.tempExtension)
         try? FileManager.default.moveItem(at: url, to: newURL)
         self.writer = nil
