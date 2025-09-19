@@ -16,6 +16,7 @@ struct System: State {
     let running: Bool
     let enabled: Bool
     let initializedPlugins: [Plugin]
+    let waitingPlugins: [Plugin]
     
     struct UpdateSettingsAction: Action {
         let settings: Settings
@@ -25,7 +26,8 @@ struct System: State {
                                 settings: settings,
                                 running: state.running,
                                 enabled: state.enabled,
-                                initializedPlugins: state.initializedPlugins)
+                                initializedPlugins: state.initializedPlugins,
+                                waitingPlugins: state.waitingPlugins)
             return result
         }
     }
@@ -34,11 +36,29 @@ struct System: State {
         let running: Bool
         
         func reduce(state: System) -> System {
+            var desiredRunning = running
+            
+            if desiredRunning == true && state.waitingPlugins.count > 0 {
+                desiredRunning = false
+            }
+            
             return System(configuration: state.configuration,
                           settings: state.settings,
-                          running: running,
+                          running: desiredRunning,
                           enabled: state.enabled,
-                          initializedPlugins: state.initializedPlugins)
+                          initializedPlugins: state.initializedPlugins,
+                          waitingPlugins: state.waitingPlugins)
+        }
+    }
+    
+    struct ForceRunningAction: Action {
+        func reduce(state: System) -> System {
+            return System(configuration: state.configuration,
+                          settings: state.settings,
+                          running: true,
+                          enabled: state.enabled,
+                          initializedPlugins: state.initializedPlugins,
+                          waitingPlugins: state.waitingPlugins)
         }
     }
     
@@ -50,7 +70,8 @@ struct System: State {
                           settings: state.settings,
                           running: state.running,
                           enabled: enabled,
-                          initializedPlugins: state.initializedPlugins)
+                          initializedPlugins: state.initializedPlugins,
+                          waitingPlugins: state.waitingPlugins)
         }
     }
     
@@ -62,7 +83,8 @@ struct System: State {
                           settings: state.settings,
                           running: state.running,
                           enabled: state.enabled,
-                          initializedPlugins: state.initializedPlugins)
+                          initializedPlugins: state.initializedPlugins,
+                          waitingPlugins: state.waitingPlugins)
         }
     }
     
@@ -79,7 +101,8 @@ struct System: State {
                           settings: settings,
                           running: state.running,
                           enabled: state.enabled,
-                          initializedPlugins: state.initializedPlugins)
+                          initializedPlugins: state.initializedPlugins,
+                          waitingPlugins: state.waitingPlugins)
         }
     }
     
@@ -97,7 +120,45 @@ struct System: State {
                           settings: state.settings,
                           running: state.running,
                           enabled: state.enabled,
-                          initializedPlugins: initializedPlugins)
+                          initializedPlugins: initializedPlugins,
+                          waitingPlugins: state.waitingPlugins)
+        }
+    }
+    
+    struct AddWaitingPlugin: Action {
+        let plugin: Plugin
+        
+        func reduce(state: System) -> System {
+            var waitingPlugins = state.waitingPlugins
+            if !waitingPlugins.contains(where: { p in
+                return plugin === p
+            }) {
+                waitingPlugins.append(plugin)
+            }
+            return System(configuration: state.configuration,
+                          settings: state.settings,
+                          running: state.running,
+                          enabled: state.enabled,
+                          initializedPlugins: state.initializedPlugins,
+                          waitingPlugins: waitingPlugins)
+        }
+    }
+    
+    struct RemoveWaitingPlugin: Action {
+        let plugin: Plugin
+        
+        func reduce(state: System) -> System {
+            var waitingPlugins = state.waitingPlugins
+            waitingPlugins.removeAll { p in
+                return plugin === p
+            }
+            
+            return System(configuration: state.configuration,
+                          settings: state.settings,
+                          running: state.running,
+                          enabled: state.enabled,
+                          initializedPlugins: state.initializedPlugins,
+                          waitingPlugins: waitingPlugins)
         }
     }
 }
@@ -108,7 +169,7 @@ struct System: State {
 struct UserInfo: Codable, State {
     let anonymousId: String
     let userId: String?
-    let traits: JSON?
+    let traits: JSON
     let referrer: URL?
     
     @Noncodable var anonIdGenerator: AnonymousIdGenerator?
@@ -121,7 +182,7 @@ struct UserInfo: Codable, State {
             } else {
                 anonId = UUID().uuidString
             }
-            return UserInfo(anonymousId: anonId, userId: nil, traits: nil, referrer: nil, anonIdGenerator: state.anonIdGenerator)
+            return UserInfo(anonymousId: anonId, userId: nil, traits: .object([:]), referrer: nil, anonIdGenerator: state.anonIdGenerator)
         }
     }
     
@@ -137,7 +198,7 @@ struct UserInfo: Codable, State {
         let traits: JSON?
         
         func reduce(state: UserInfo) -> UserInfo {
-            return UserInfo(anonymousId: state.anonymousId, userId: state.userId, traits: traits, referrer: state.referrer, anonIdGenerator: state.anonIdGenerator)
+            return UserInfo(anonymousId: state.anonymousId, userId: state.userId, traits: traits ?? .object([:]), referrer: state.referrer, anonIdGenerator: state.anonIdGenerator)
         }
     }
     
@@ -146,7 +207,7 @@ struct UserInfo: Codable, State {
         let traits: JSON?
         
         func reduce(state: UserInfo) -> UserInfo {
-            return UserInfo(anonymousId: state.anonymousId, userId: userId, traits: traits, referrer: state.referrer, anonIdGenerator: state.anonIdGenerator)
+            return UserInfo(anonymousId: state.anonymousId, userId: userId, traits: traits ?? .object([:]), referrer: state.referrer, anonIdGenerator: state.anonIdGenerator)
         }
     }
     
@@ -171,14 +232,21 @@ extension System {
                 settings = Settings(writeKey: configuration.values.writeKey, apiHost: HTTPClient.getDefaultAPIHost())
             }
         }
-        return System(configuration: configuration, settings: settings, running: false, enabled: true, initializedPlugins: [Plugin]())
+        return System(
+            configuration: configuration,
+            settings: settings,
+            running: false,
+            enabled: true,
+            initializedPlugins: [Plugin](),
+            waitingPlugins: [WaitingPlugin]()
+        )
     }
 }
 
 extension UserInfo {
     static func defaultState(from storage: Storage, anonIdGenerator: AnonymousIdGenerator) -> UserInfo {
         let userId: String? = storage.read(.userId)
-        let traits: JSON? = storage.read(.traits)
+        let traits: JSON = storage.read(.traits) ?? .object([:])
         var anonymousId: String
         if let existingId: String = storage.read(.anonymousId) {
             anonymousId = existingId

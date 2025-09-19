@@ -108,7 +108,7 @@ public class SegmentDestination: DestinationPlugin, Subscriber, FlushCompletion 
     internal func enterForeground() { }
 
     internal func enterBackground() {
-        flush()
+        analytics?.flush()
     }
 
     // MARK: - Event Parsing Methods
@@ -121,10 +121,6 @@ public class SegmentDestination: DestinationPlugin, Subscriber, FlushCompletion 
         }
     }
 
-    public func flush() {
-        // unused .. see flush(group:completion:)
-    }
-    
     public func flush(group: DispatchGroup) {
         group.enter()
         defer { group.leave() }
