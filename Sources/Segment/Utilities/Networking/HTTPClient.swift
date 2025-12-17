@@ -60,24 +60,33 @@ public class HTTPClient {
             return nil
         }
 
-        
+        // Guard against uploading empty or malformed batches.
+        // If we upload `{ "batch": [] }` (or an empty file), it appears as a "blank request" server-side.
+        // Treat it like a 400 so the caller will drop the bad batch rather than retrying forever.
         do {
             let fileData = try Data(contentsOf: batch)
-            
-            if let jsonObject = try JSONSerialization.jsonObject(with: fileData, options: []) as? [String: Any] {
-                if let array = jsonObject["batch"] as? [[String: Any]] {
-                    if array.count == 0 {
-                        analytics?.reportInternalError(AnalyticsError.networkServerLimited("Internal: batch count is zero for url: \(batch) and file data count: \(fileData.count), file string: \(String(describing: String(data: fileData, encoding: .utf8)))", 400))
-                    }
-                } else {
-                    analytics?.reportInternalError(AnalyticsError.networkServerLimited("Internal: not able to find batch in json for url: \(batch) and file data count: \(fileData.count), file string: \(String(describing: String(data: fileData, encoding: .utf8)))", 400))
-                }
-            } else {
-                analytics?.reportInternalError(AnalyticsError.networkServerLimited("Internal: Unable to parse json from file data for url: \(batch) and file data count: \(fileData.count), file string: \(String(describing: String(data: fileData, encoding: .utf8)))", 400))
+            guard fileData.isEmpty == false else {
+                analytics?.reportInternalError(AnalyticsError.networkServerLimited("Internal: batch file is empty for url: \(batch)", 400))
+                completion(.failure(HTTPClientErrors.statusCode(code: 400)))
+                return nil
             }
 
+            if let jsonObject = try JSONSerialization.jsonObject(with: fileData, options: []) as? [String: Any],
+               let array = jsonObject["batch"] as? [[String: Any]] {
+                if array.isEmpty {
+                    analytics?.reportInternalError(AnalyticsError.networkServerLimited("Internal: batch count is zero for url: \(batch) and file data count: \(fileData.count), file string: \(String(describing: String(data: fileData, encoding: .utf8)))", 400))
+                    completion(.failure(HTTPClientErrors.statusCode(code: 400)))
+                    return nil
+                }
+            } else {
+                analytics?.reportInternalError(AnalyticsError.networkServerLimited("Internal: not able to parse batch json for url: \(batch) and file data count: \(fileData.count), file string: \(String(describing: String(data: fileData, encoding: .utf8)))", 400))
+                completion(.failure(HTTPClientErrors.statusCode(code: 400)))
+                return nil
+            }
         } catch {
             analytics?.reportInternalError(AnalyticsError.networkServerLimited("Internal: Error while reading file from url: \(batch)", 400))
+            completion(.failure(HTTPClientErrors.statusCode(code: 400)))
+            return nil
         }
                 
         let urlRequest = configuredRequest(for: uploadURL, method: "POST")
@@ -108,6 +117,26 @@ public class HTTPClient {
         guard let uploadURL = segmentURL(for: apiHost, path: "/b") else {
             self.analytics?.reportInternalError(HTTPClientErrors.failedToOpenBatch)
             completion(.failure(HTTPClientErrors.failedToOpenBatch))
+            return nil
+        }
+
+        // Same guard as the file-based uploader; never send empty batches.
+        do {
+            guard data.isEmpty == false else {
+                analytics?.reportInternalError(AnalyticsError.networkServerLimited("Internal: batch data is empty", 400))
+                completion(.failure(HTTPClientErrors.statusCode(code: 400)))
+                return nil
+            }
+            if let jsonObject = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+               let array = jsonObject["batch"] as? [[String: Any]],
+               array.isEmpty {
+                analytics?.reportInternalError(AnalyticsError.networkServerLimited("Internal: batch count is zero for in-memory batch (data count: \(data.count))", 400))
+                completion(.failure(HTTPClientErrors.statusCode(code: 400)))
+                return nil
+            }
+        } catch {
+            analytics?.reportInternalError(AnalyticsError.networkServerLimited("Internal: Unable to parse json for in-memory batch (data count: \(data.count))", 400))
+            completion(.failure(HTTPClientErrors.statusCode(code: 400)))
             return nil
         }
           

@@ -170,6 +170,31 @@ extension DirectoryStore {
             #endif
             return
         }
+
+        // If we never wrote any events, don't finalize an empty `{ "batch": [] }` payload.
+        // This prevents "blank" uploads during flushes that occur with an open-but-empty writer.
+        let startLine = "{ \"batch\": ["
+        let startLineBytes = UInt64((startLine.data(using: .utf8)?.count ?? 0) + LineStreamConstants.delimiter.count)
+        if writer.bytesWritten <= startLineBytes {
+            let url = writer.url
+            // Close the file before removing it (important for Linux and some Apple platforms).
+            #if os(Linux) || os(Windows)
+            writer.fileHandle.synchronizeFile()
+            writer.fileHandle.closeFile()
+            #else
+            if #available(macOS 10.15.4, iOS 13.4, tvOS 13.4, watchOS 13.4, *) {
+                _ = try? writer.fileHandle.synchronize()
+                _ = try? writer.fileHandle.close()
+            } else {
+                writer.fileHandle.synchronizeFile()
+                writer.fileHandle.closeFile()
+            }
+            #endif
+            self.writer = nil
+            try? FileManager.default.removeItem(at: url)
+            incrementIndex()
+            return
+        }
         
         let sentAt = Date().iso8601()
         let fileEnding = "],\"sentAt\":\"\(sentAt)\",\"writeKey\":\"\(config.writeKey)\"}"
