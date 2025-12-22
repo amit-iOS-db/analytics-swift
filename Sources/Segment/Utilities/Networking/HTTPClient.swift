@@ -119,6 +119,26 @@ public class HTTPClient {
             completion(.failure(HTTPClientErrors.failedToOpenBatch))
             return nil
         }
+
+        // Same guard as the file-based uploader; never send empty batches.
+        do {
+            guard data.isEmpty == false else {
+                analytics?.reportInternalError(AnalyticsError.networkServerLimited("Internal: batch data is empty", 400))
+                completion(.failure(HTTPClientErrors.statusCode(code: 400)))
+                return nil
+            }
+            if let jsonObject = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+               let array = jsonObject["batch"] as? [[String: Any]],
+               array.isEmpty {
+                analytics?.reportInternalError(AnalyticsError.networkServerLimited("Internal: batch count is zero for in-memory batch (data count: \(data.count))", 400))
+                completion(.failure(HTTPClientErrors.statusCode(code: 400)))
+                return nil
+            }
+        } catch {
+            analytics?.reportInternalError(AnalyticsError.networkServerLimited("Internal: Unable to parse json for in-memory batch (data count: \(data.count))", 400))
+            completion(.failure(HTTPClientErrors.statusCode(code: 400)))
+            return nil
+        }
           
         let urlRequest = configuredRequest(for: uploadURL, method: "POST")
         
