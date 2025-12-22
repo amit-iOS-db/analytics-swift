@@ -61,6 +61,7 @@ public class HTTPClient {
         }
 
         
+        // Validate batch file before uploading to avoid sending blank/invalid requests
         do {
             let fileData = try Data(contentsOf: batch)
             
@@ -68,28 +69,34 @@ public class HTTPClient {
                 if let array = jsonObject["batch"] as? [[String: Any]] {
                     if array.count == 0 {
                         analytics?.reportInternalError(AnalyticsError.networkServerLimited("Internal: batch count is zero for url: \(batch) and file data count: \(fileData.count), file string: \(String(describing: String(data: fileData, encoding: .utf8)))", 400))
+                        // Skip uploading empty batches - return failure so the file gets cleaned up
+                        completion(.failure(HTTPClientErrors.statusCode(code: 400)))
+                        return nil
                     }
                 } else {
                     analytics?.reportInternalError(AnalyticsError.networkServerLimited("Internal: not able to find batch in json for url: \(batch) and file data count: \(fileData.count), file string: \(String(describing: String(data: fileData, encoding: .utf8)))", 400))
+                    // Skip uploading invalid batches - return failure so the file gets cleaned up
+                    completion(.failure(HTTPClientErrors.statusCode(code: 400)))
+                    return nil
                 }
             } else {
                 analytics?.reportInternalError(AnalyticsError.networkServerLimited("Internal: Unable to parse json from file data for url: \(batch) and file data count: \(fileData.count), file string: \(String(describing: String(data: fileData, encoding: .utf8)))", 400))
+                // Skip uploading unparseable batches - return failure so the file gets cleaned up
+                completion(.failure(HTTPClientErrors.statusCode(code: 400)))
+                return nil
             }
 
         } catch {
             analytics?.reportInternalError(AnalyticsError.networkServerLimited("Internal: Error while reading file from url: \(batch)", 400))
+            // Skip uploading unreadable batches - return failure so the file gets cleaned up
+            completion(.failure(HTTPClientErrors.statusCode(code: 400)))
+            return nil
         }
                 
         let urlRequest = configuredRequest(for: uploadURL, method: "POST")
         
         let dataTask = session.uploadTask(with: urlRequest, fromFile: batch) { [weak self] (data, response, error) in
             guard let self else { return }
-            
-            print("\nAPI Request as curl \n \(urlRequest.cURLRepresentation())")
-
-            if let data {
-                print("Segment API Response: \(String(describing: String(data: data, encoding: .utf8)))")
-            }
             handleResponse(data: data, response: response, error: error, url: uploadURL, batch: batch, completion: completion)
         }
 
@@ -156,6 +163,8 @@ public class HTTPClient {
                 } catch {
                     analytics?.reportInternalError(AnalyticsError.networkUnexpectedHTTPCode("Empty File " + apiResponse, httpResponse.statusCode))
                 }
+                // Call completion with failure so the bad batch file gets removed and doesn't retry indefinitely
+                completion(.failure(HTTPClientErrors.statusCode(code: httpResponse.statusCode)))
             default:
                 analytics?.reportInternalError(AnalyticsError.networkServerRejected(apiResponse, httpResponse.statusCode))
                 completion(.failure(HTTPClientErrors.statusCode(code: httpResponse.statusCode)))
